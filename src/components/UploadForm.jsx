@@ -1,10 +1,9 @@
 import React, { useState } from "react";
-import { generatePDF, saveUserEmail } from "../services/api";
+import { generatePDF } from "../services/api";
 
 export default function UploadForm() {
   const [fichierBanque, setFichierBanque] = useState(null);
   const [fichierInterne, setFichierInterne] = useState(null);
-  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [pdfUrl, setPdfUrl] = useState("");
 
@@ -17,19 +16,34 @@ export default function UploadForm() {
       reader.readAsDataURL(file);
     });
 
-  // Télécharger un modèle CSV pour aider l'utilisateur
+  // Télécharger un modèle CSV réaliste
   const telechargerModeleCSV = (type) => {
-    const headers = ["compte", "solde"];
-    const exemple = type === "banque"
-      ? [["1001", "5000"], ["1002", "3000"]]
-      : [["1001", "5000"], ["1002", "3200"]];
+    const headers = [
+      "compte",
+      "solde",
+      "teller_tx",
+      "atm_tx",
+      "suspens_tx"
+    ];
+
+    const exemple =
+      type === "banque"
+        ? [
+            ["1001", "5000", "1200", "800", "0"],
+            ["1002", "3000", "0", "300", "50"]
+          ]
+        : [
+            ["1001", "5000", "1200", "800", "0"],
+            ["1002", "3200", "0", "300", "50"]
+          ];
+
     const csvContent =
       "data:text/csv;charset=utf-8," +
-      [headers, ...exemple].map((e) => e.join(",")).join("\n");
-    const encodedUri = encodeURI(csvContent);
+      [headers, ...exemple].map((ligne) => ligne.join(",")).join("\n");
+
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `${type}_modele.csv`);
+    link.href = encodeURI(csvContent);
+    link.download = `${type}_modele.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -37,11 +51,7 @@ export default function UploadForm() {
 
   const envoyer = async () => {
     if (!fichierBanque || !fichierInterne) {
-      alert("Sélectionnez les deux fichiers !");
-      return;
-    }
-    if (!email) {
-      alert("Entrez votre email pour recevoir le PDF !");
+      alert("Sélectionne les deux fichiers CSV");
       return;
     }
 
@@ -49,46 +59,46 @@ export default function UploadForm() {
     setPdfUrl("");
 
     try {
-      const bankBase64 = await lireFichierEnBase64(fichierBanque);
-      const internalBase64 = await lireFichierEnBase64(fichierInterne);
+      const banqueBase64 = await lireFichierEnBase64(fichierBanque);
+      const interneBase64 = await lireFichierEnBase64(fichierInterne);
 
-      // Générer le PDF via ton API Lambda
-      const pdfData = await generatePDF(bankBase64, internalBase64);
-      if (!pdfData.url) throw new Error("La génération du PDF a échoué");
+      const resultat = await generatePDF(banqueBase64, interneBase64);
 
-      setPdfUrl(pdfData.url);
+      if (!resultat.url) {
+        throw new Error("Le PDF n’a pas été généré");
+      }
 
-      // Sauvegarder email et infos pour consultation côté admin
-      await saveUserEmail({ email, fichierBanque: fichierBanque.name, fichierInterne: fichierInterne.name });
-
+      setPdfUrl(resultat.url);
     } catch (e) {
       console.error(e);
-      alert("Erreur: " + e.message);
+      alert("Erreur : " + e.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ maxWidth: 600, margin: "50px auto", fontFamily: "Arial" }}>
-      <h2>Réconciliation bancaire</h2>
+    <div
+      style={{
+        maxWidth: 650,
+        margin: "50px auto",
+        padding: 20,
+        fontFamily: "Arial",
+        border: "1px solid #ddd",
+        borderRadius: 8
+      }}
+    >
+      <h2>Réconciliation bancaire – Simulation</h2>
 
-      <div style={{ marginBottom: 10 }}>
-        <label>
-          Votre email : <br />
-          <input
-            type="email"
-            placeholder="ex: vous@mail.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            style={{ width: "100%", padding: "6px", marginTop: "4px" }}
-          />
-        </label>
-      </div>
+      <p style={{ fontSize: 14, color: "#555" }}>
+        Télécharge les modèles CSV, modifie-les puis génère un rapport PDF
+        détaillé de réconciliation bancaire.
+      </p>
 
-      <div style={{ marginBottom: 10 }}>
+      {/* Fichier banque */}
+      <div style={{ marginBottom: 15 }}>
         <label>
-          Fichier banque : {fichierBanque && <strong>{fichierBanque.name}</strong>}
+          <strong>Fichier banque</strong>
           <br />
           <input
             type="file"
@@ -96,14 +106,19 @@ export default function UploadForm() {
             onChange={(e) => setFichierBanque(e.target.files[0])}
           />
         </label>
-        <button onClick={() => telechargerModeleCSV("banque")} style={{ marginLeft: 10 }}>
+        <br />
+        <button
+          onClick={() => telechargerModeleCSV("banque")}
+          style={{ marginTop: 6 }}
+        >
           Télécharger modèle CSV banque
         </button>
       </div>
 
-      <div style={{ marginBottom: 10 }}>
+      {/* Fichier interne */}
+      <div style={{ marginBottom: 20 }}>
         <label>
-          Fichier interne : {fichierInterne && <strong>{fichierInterne.name}</strong>}
+          <strong>Fichier interne</strong>
           <br />
           <input
             type="file"
@@ -111,19 +126,31 @@ export default function UploadForm() {
             onChange={(e) => setFichierInterne(e.target.files[0])}
           />
         </label>
-        <button onClick={() => telechargerModeleCSV("interne")} style={{ marginLeft: 10 }}>
+        <br />
+        <button
+          onClick={() => telechargerModeleCSV("interne")}
+          style={{ marginTop: 6 }}
+        >
           Télécharger modèle CSV interne
         </button>
       </div>
 
-      <button onClick={envoyer} disabled={loading} style={{ padding: "8px 20px", marginTop: 20 }}>
-        {loading ? "Génération..." : "Uploader et générer le PDF"}
+      <button
+        onClick={envoyer}
+        disabled={loading}
+        style={{
+          padding: "10px 25px",
+          fontSize: 15,
+          cursor: loading ? "not-allowed" : "pointer"
+        }}
+      >
+        {loading ? "Génération du rapport..." : "Générer le PDF"}
       </button>
 
       {pdfUrl && (
-        <div style={{ marginTop: 20 }}>
+        <div style={{ marginTop: 25 }}>
           <a href={pdfUrl} target="_blank" rel="noopener noreferrer">
-            Télécharger le PDF (lien temporaire, valable 10 minutes)
+            📄 Télécharger le rapport PDF (lien temporaire)
           </a>
         </div>
       )}
