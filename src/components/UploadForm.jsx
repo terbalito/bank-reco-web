@@ -1,26 +1,47 @@
 import React, { useState } from "react";
+import { generatePDF, saveUserEmail } from "../services/api";
 
 export default function UploadForm() {
   const [fichierBanque, setFichierBanque] = useState(null);
   const [fichierInterne, setFichierInterne] = useState(null);
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [pdfUrl, setPdfUrl] = useState("");
 
-  // Convertit un fichier en base64
+  // Convertir un fichier en Base64
   const lireFichierEnBase64 = (file) =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result.split(",")[1];
-        resolve(base64);
-      };
+      reader.onload = () => resolve(reader.result.split(",")[1]);
       reader.onerror = reject;
       reader.readAsDataURL(file);
     });
 
+  // Télécharger un modèle CSV pour aider l'utilisateur
+  const telechargerModeleCSV = (type) => {
+    const headers = ["compte", "solde"];
+    const exemple = type === "banque"
+      ? [["1001", "5000"], ["1002", "3000"]]
+      : [["1001", "5000"], ["1002", "3200"]];
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      [headers, ...exemple].map((e) => e.join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${type}_modele.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const envoyer = async () => {
     if (!fichierBanque || !fichierInterne) {
-      alert("Sélectionnez les deux fichiers");
+      alert("Sélectionnez les deux fichiers !");
+      return;
+    }
+    if (!email) {
+      alert("Entrez votre email pour recevoir le PDF !");
       return;
     }
 
@@ -28,31 +49,18 @@ export default function UploadForm() {
     setPdfUrl("");
 
     try {
-      // 1️⃣ Convertir les fichiers en Base64
       const bankBase64 = await lireFichierEnBase64(fichierBanque);
       const internalBase64 = await lireFichierEnBase64(fichierInterne);
 
-      // 2️⃣ Appeler la route /generate-pdf
-      const resPdf = await fetch(
-        "https://grrkl3gjae.execute-api.eu-north-1.amazonaws.com/prod/generate-pdf",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            bank_file: bankBase64,
-            internal_file: internalBase64
-          }),
-        }
-      );
-
-      const pdfData = await resPdf.json();
-      console.log("PDF response:", pdfData);
-
-      if (!pdfData.url) {
-        throw new Error("La génération du PDF a échoué");
-      }
+      // Générer le PDF via ton API Lambda
+      const pdfData = await generatePDF(bankBase64, internalBase64);
+      if (!pdfData.url) throw new Error("La génération du PDF a échoué");
 
       setPdfUrl(pdfData.url);
+
+      // Sauvegarder email et infos pour consultation côté admin
+      await saveUserEmail({ email, fichierBanque: fichierBanque.name, fichierInterne: fichierInterne.name });
+
     } catch (e) {
       console.error(e);
       alert("Erreur: " + e.message);
@@ -62,21 +70,53 @@ export default function UploadForm() {
   };
 
   return (
-    <div style={{ maxWidth: 500, margin: "50px auto", fontFamily: "Arial" }}>
+    <div style={{ maxWidth: 600, margin: "50px auto", fontFamily: "Arial" }}>
       <h2>Réconciliation bancaire</h2>
 
-      <input
-        type="file"
-        accept=".csv"
-        onChange={(e) => setFichierBanque(e.target.files[0])}
-      />
-      <input
-        type="file"
-        accept=".csv"
-        onChange={(e) => setFichierInterne(e.target.files[0])}
-      />
+      <div style={{ marginBottom: 10 }}>
+        <label>
+          Votre email : <br />
+          <input
+            type="email"
+            placeholder="ex: vous@mail.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={{ width: "100%", padding: "6px", marginTop: "4px" }}
+          />
+        </label>
+      </div>
 
-      <button onClick={envoyer} disabled={loading}>
+      <div style={{ marginBottom: 10 }}>
+        <label>
+          Fichier banque : {fichierBanque && <strong>{fichierBanque.name}</strong>}
+          <br />
+          <input
+            type="file"
+            accept=".csv"
+            onChange={(e) => setFichierBanque(e.target.files[0])}
+          />
+        </label>
+        <button onClick={() => telechargerModeleCSV("banque")} style={{ marginLeft: 10 }}>
+          Télécharger modèle CSV banque
+        </button>
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <label>
+          Fichier interne : {fichierInterne && <strong>{fichierInterne.name}</strong>}
+          <br />
+          <input
+            type="file"
+            accept=".csv"
+            onChange={(e) => setFichierInterne(e.target.files[0])}
+          />
+        </label>
+        <button onClick={() => telechargerModeleCSV("interne")} style={{ marginLeft: 10 }}>
+          Télécharger modèle CSV interne
+        </button>
+      </div>
+
+      <button onClick={envoyer} disabled={loading} style={{ padding: "8px 20px", marginTop: 20 }}>
         {loading ? "Génération..." : "Uploader et générer le PDF"}
       </button>
 
